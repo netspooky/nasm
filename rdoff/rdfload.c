@@ -46,6 +46,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 
 #include "rdfload.h"
 #include "symtab.h"
@@ -81,17 +82,26 @@ rdfmodule *rdfload(const char *filename)
 
     /* read in text and data segments, and header */
 
+    /*
+     *  (((ULONG_PTR)(x)) + PAGE_SIZE-1)  & (~(PAGE_SIZE-1)) )
+     * want 32-bit offsets and permissions to work with, so mmap instead
     f->t = nasm_malloc(f->f.seg[0].length);
-    f->d = nasm_malloc(f->f.seg[1].length);  /* BSS seg allocated later */
+    f->d = nasm_malloc(f->f.seg[1].length);  / BSS seg allocated later 
+    */
+    #define PAGE_CEIL(x) ((x & !0xfff) + 0x1000)
+    f->t = mmap(0, PAGE_CEIL(f->f.seg[0].length), PROT_READ | PROT_EXEC, MAP_PRIVATE | MAP_32BIT, 0, 0);
+    f->d = mmap(0, PAGE_CEIL(f->f.seg[1].length), PROT_READ | PROT_WRITE , MAP_PRIVATE | MAP_32BIT, 0, 0);
     hdr = nasm_malloc(f->f.header_len);
 
     if (!f->t || !f->d || !hdr) {
         rdf_errno = RDF_ERR_NOMEM;
         rdfclose(&f->f);
         if (f->t)
-            nasm_free(f->t);
+            munmap(f->t, PAGE_CEIL(f->f.seg[0].length));
+            // nasm_free(f->t);
         if (f->d)
-            nasm_free(f->d);
+            munmap(f->d, PAGE_CEIL(f->f.seg[1].length));
+            // nasm_free(f->d);
         nasm_free(f);
         nasm_free(hdr);
         return NULL;
@@ -129,9 +139,9 @@ rdfmodule *rdfload(const char *filename)
 
     rdfheaderrewind(&f->f);
 
-    f->textrel = (int32_t)(size_t)f->t;
-    f->datarel = (int32_t)(size_t)f->d;
-    f->bssrel  = (int32_t)(size_t)f->b;
+    f->textrel = (int64_t)(size_t)f->t; // patched
+    f->datarel = (int64_t)(size_t)f->d; // patched
+    f->bssrel  = (int64_t)(size_t)f->b; // patched
 
     return f;
 }
@@ -144,8 +154,8 @@ int rdf_relocate(rdfmodule * m)
     int32_t rel;
     uint8_t *seg;
 
-    rdfheaderrewind(&m->f);
-    collection_init(&imports);
+    rdfheaderrewind(&m->f); // just sets m->f->header_fp to 0
+    collection_init(&imports); // unused
 
     while ((r = rdfgetheaderrec(&m->f))) {
         switch (r->type) {
