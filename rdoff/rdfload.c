@@ -83,7 +83,6 @@ rdfmodule *rdfload(const char *filename)
     /* read in text and data segments, and header */
 
     /*
-     *  (((ULONG_PTR)(x)) + PAGE_SIZE-1)  & (~(PAGE_SIZE-1)) )
      * want 32-bit offsets and permissions to work with, so mmap instead
     f->t = nasm_malloc(f->f.seg[0].length);
     f->d = nasm_malloc(f->f.seg[1].length);  / BSS seg allocated later 
